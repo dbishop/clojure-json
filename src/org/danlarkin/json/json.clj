@@ -35,8 +35,7 @@
   [hmap]
   (loop [dict hmap
          accumulator []]
-    (if (= (count dict)
-           0)
+    (if (= (first dict) nil)
       accumulator
       (let [k (ffirst dict)
             v (second (first dict))]
@@ -54,8 +53,7 @@
     (str \{
          pad 
          (str-utils/str-join (str "," pad)
-                             (for [x (create-hash-pairs hmap)]
-                               (str indent x)))
+                             (map #(str indent %) (create-hash-pairs hmap)))
          pad
          \})))
 
@@ -67,8 +65,7 @@
     (str \[
          pad
          (str-utils/str-join (str "," pad)
-                             (for [x lst]
-                               (str indent (encode x))))
+                             (map #(str indent (encode %)) lst))
          pad
          \])))
 
@@ -77,7 +74,7 @@
    It takes an arbitrarily nested clojure datastructure
    and returns a JSON-encoded string representation."
   [value & opts]
-  (cond 
+  (cond
    (= (class value) java.lang.Boolean) value
    (nil? value) 'null
    (string? value) (str \" value \")
