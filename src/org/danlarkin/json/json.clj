@@ -24,7 +24,8 @@
 ;; THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 (ns org.danlarkin.json
-  (:require (clojure.contrib [str-utils :as str-utils])))
+  (:import (java.io Writer StringWriter))
+  (:use org.danlarkin.json.writer-utils))
 
 (def encode) ;encode is used before it's defined, so we have to
              ;pre-define it
@@ -33,57 +34,61 @@
   "Helper function for encoding maps.
    Returns a vector of string key:value pairs"
   [hmap]
-  (loop [dict hmap
-         accumulator []]
-    (if (= (count dict)
-           0)
-      accumulator
-      (let [k (ffirst dict)
-            v (second (first dict))]
-        (recur (rest dict)
-               (conj accumulator 
-                     (str (encode k)
-                          ":"
-                          (encode v))))))))
+  (let [writer (StringWriter.)]
+    (loop [dict hmap
+           accumulator []]
+      (if (= (count dict)
+             0)
+        accumulator
+        (let [k (ffirst dict)
+              v (second (first dict))]
+          (recur (rest dict)
+                 (conj accumulator
+                       (writer-append writer
+                                      (encode k)
+                                      ":"
+                                      (encode v)))))))))
 
 (defn- encode-map
-  [hmap & opts]
+  [hmap #^Writer writer & opts]
   (let [opts (apply hash-set opts)
         pad (if (:pad opts) \newline "")
         indent (if (:pad opts) "   " "")]
-    (str \{
-         pad 
-         (str-utils/str-join (str "," pad)
-                             (for [x (create-hash-pairs hmap)]
-                               (str indent x)))
-         pad
-         \})))
+    (writer-append writer \{ pad)
+    (writer-join writer (str "," pad)
+                 (for [x (create-hash-pairs hmap)]
+                   (str indent x)))
+    (writer-append writer pad \})))
 
 (defn- encode-coll
-  [lst & opts]
+  [lst #^Writer writer & opts]
   (let [opts (apply hash-set opts)
         pad (if (:pad opts) \newline "")
         indent (if (:pad opts) "   " "")]
-    (str \[
-         pad
-         (str-utils/str-join (str "," pad)
-                             (for [x lst]
-                               (str indent (encode x))))
-         pad
-         \])))
+    (writer-append writer \[ pad)
+    (writer-join writer
+                 (str "," pad)
+                 (for [x lst]
+                   (str indent (encode x))))
+    (writer-append writer pad \])))
+
+(defn- encode-helper
+  [value #^Writer writer & opts]
+  (cond
+   (= (class value) java.lang.Boolean) (writer-append writer value)
+   (nil? value) (writer-append writer 'null)
+   (string? value) (writer-append writer \" value \")
+   (number? value) (writer-append writer value)
+   (symbol? value) (writer-append writer \" value \")
+   (keyword? value) (writer-append writer \" value \")
+   (map? value) (apply encode-map value writer opts)
+   (coll? value) (apply encode-coll value writer opts)
+   :else (throw (Exception. "Unknown Datastructure"))))
 
 (defn encode
   "This is the only function exported from this namespace.
    It takes an arbitrarily nested clojure datastructure
    and returns a JSON-encoded string representation."
-  [value & opts]
-  (cond 
-   (= (class value) java.lang.Boolean) value
-   (nil? value) 'null
-   (string? value) (str \" value \")
-   (number? value) value
-   (symbol? value) (str \" value \")
-   (keyword? value) (str \" value \")
-   (map? value) (apply encode-map value opts)
-   (coll? value) (apply encode-coll value opts)
-   :else (throw (Exception. "Unknown Datastructure"))))
+  ([value & opts]
+     (let [w (StringWriter.)]
+       (apply encode-helper value w opts))))
