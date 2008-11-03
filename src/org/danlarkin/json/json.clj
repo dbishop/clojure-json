@@ -37,8 +37,7 @@
   (let [writer (StringWriter.)]
     (loop [dict hmap
            accumulator []]
-      (if (= (count dict)
-             0)
+      (if (= (first dict) nil)
         accumulator
         (let [k (ffirst dict)
               v (second (first dict))]

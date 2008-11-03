@@ -28,17 +28,16 @@
 
 (defn writer-append
   [#^Writer writer & strings]
-  (if (and (= (count strings) 1)
+  (if (and (and (not (= (first strings) nil))
+                (= (frest strings) nil))
            (instance? Writer (first strings)))
     ;passed two Writers
     (. writer (append (. (first strings) (getBuffer))))
     ;passed a Writer and a seq of strings
-    (loop [strs strings]
-      (if (= (count strs) 0)
-        writer
-        (do
-          (. writer (append (str (first strs))))
-          (recur (rest strs)))))))
+    (do
+      (dorun (map #(. writer (append (str %)))
+                  strings))
+      writer)))
 
 (defn writer-join
   [#^Writer writer #^String separator sequence]
