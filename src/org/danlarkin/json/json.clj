@@ -24,70 +24,84 @@
 ;; THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 (ns org.danlarkin.json
-  (:import (java.io Writer StringWriter))
-  (:use org.danlarkin.json.writer-utils))
+  (:import (java.io Writer StringWriter)))
 
-(def encode) ;encode is used before it's defined, so we have to
-             ;pre-define it
-
-(defn- create-hash-pairs
-  "Helper function for encoding maps.
-   Returns a vector of string key:value pairs"
-  [hmap]
-  (let [writer (StringWriter.)]
-    (loop [dict hmap
-           accumulator []]
-      (if (= (first dict) nil)
-        accumulator
-        (let [k (ffirst dict)
-              v (second (first dict))]
-          (recur (rest dict)
-                 (conj accumulator
-                       (writer-append writer
-                                      (encode k)
-                                      ":"
-                                      (encode v)))))))))
+(defn- encode-helper []) ;encode-helper is used before it's defined
+                         ;so we have to pre-define it
 
 (defn- encode-map
-  [hmap #^Writer writer & opts]
-  (let [opts (apply hash-set opts)
-        pad (if (:pad opts) \newline "")
-        indent (if (:pad opts) "   " "")]
-    (writer-append writer \{ pad)
-    (writer-join writer (str "," pad)
-                 (for [x (create-hash-pairs hmap)]
-                   (str indent x)))
-    (writer-append writer pad \})))
+  "Encodes a hash-map into JSON.
+   Has a caveat that any strings that evaluate to the
+   (gensym 'comma__') will be encoded as commas."
+  [hmap #^Writer writer #^String pad #^String indent #^Integer indent-size]
+  (. writer (append (str \{ pad)))
+  (let [comma (gensym "comma__")
+        ind (if (empty? indent) "" (apply str (replicate indent-size " ")))]
+    (dorun (map (fn [x] (if (= x comma)
+                          (do
+                            (. writer (append ","))
+                            (. writer (append pad)))
+                          (do
+                            (encode-helper (first x) writer pad ind indent-size)
+                            (. writer (append ":"))
+                            (encode-helper (second x) writer pad "" 0))))
+                (interpose comma hmap))))
+  (. writer (append (str indent pad \}))))
 
 (defn- encode-coll
-  [lst #^Writer writer & opts]
-  (let [opts (apply hash-set opts)
-        pad (if (:pad opts) \newline "")
-        indent (if (:pad opts) "   " "")]
-    (writer-append writer \[ pad)
-    (writer-join writer
-                 (str "," pad)
-                 (for [x lst]
-                   (str indent (encode x))))
-    (writer-append writer pad \])))
+  "Encodes a collection into JSON.
+   Has a caveat that any strings that evaluate to the
+   (gensym 'comma__') will be encoded as commas."
+  [lst #^Writer writer #^String pad #^String indent #^Integer indent-size]
+  (. writer (append (str \[ pad)))
+  (let [comma (gensym "comma__")
+        ind (if (empty? indent) "" (str indent
+                                        (apply str (replicate indent-size " "))))]
+    (dorun (map (fn [x]
+                  (if (= x comma)
+                    (do
+                      (. writer (append ","))
+                      (. writer (append pad)))
+                    (do
+                      (. writer (append indent))
+                      (encode-helper x writer pad indent indent-size))))
+                (interpose comma lst))))
+  (. writer (append (str pad \]))))
 
 (defn- encode-helper
-  [value #^Writer writer & opts]
-  (cond
-   (= (class value) java.lang.Boolean) (writer-append writer value)
-   (nil? value) (writer-append writer 'null)
-   (string? value) (writer-append writer \" value \")
-   (number? value) (writer-append writer value)
-   (symbol? value) (writer-append writer \" value \")
-   (keyword? value) (writer-append writer \" value \")
-   (map? value) (apply encode-map value writer opts)
-   (coll? value) (apply encode-coll value writer opts)
-   :else (throw (Exception. "Unknown Datastructure"))))
+  [value #^Writer writer #^String pad #^String indent #^Integer indent-size]
+  (let [ind (str indent
+                 (apply str (replicate indent-size " ")))]
+    (cond
+     (= (class value) java.lang.Boolean) (. writer (append (str ind value)))
+     (nil? value) (. writer (append (str ind 'null)))
+     (string? value) (. writer (append (str ind \" value \")))
+     (number? value) (. writer (append (str ind value)))
+     (symbol? value) (. writer (append (str ind \" value \")))
+     (keyword? value) (. writer (append (str ind \" value \")))
+     (map? value) (encode-map value writer pad ind indent-size)
+     (coll? value) (encode-coll value writer pad ind indent-size)
+     :else (throw (Exception. (str "Unknown Datastructure: " value))))))
 
-(defn encode
-  "This is the only function exported from this namespace.
-   It takes an arbitrarily nested clojure datastructure
-   and returns a JSON-encoded string representation."
-  ([value & opts]
-     (let [w (StringWriter.)]
-       (apply encode-helper value w opts))))
+(defn encode-to-str
+  "Takes an arbitrarily nested clojure datastructure
+   and returns a JSON-encoded string representation
+   in a java.lang.String."
+  [value & opts]
+  (let [writer (StringWriter.)
+        opts (apply hash-map opts)
+        pad (if (:pad opts) \newline "")
+        indent-size (get opts :indent 0)
+        indent (apply str (replicate indent-size " "))]
+    (str (encode-helper value writer pad "" indent-size))))
+
+(defn encode-to-writer
+  "Takes an arbitrarily nested clojure datastructure
+   and a java.lang.Writer and returns a JSON-encoded
+   string representation in the java.io.Writer."
+  [value #^Writer writer & opts]
+  (let [opts (apply hash-map opts)
+        pad (if (:pad opts) \newline "")
+        indent-size (get opts :indent 0)
+        indent (apply str (replicate indent-size " "))]
+    (encode-helper value writer pad "" indent-size)))
