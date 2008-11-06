@@ -6,10 +6,14 @@
 
 # Using #
 
-    foo=> (json/encode [1,2,3,4,5])
+    foo=> (json/encode-to-str [1 2 3 4 5])
     "[1,2,3,4,5]"
-    foo=> (json/encode {"a" 1 "b" 2 "c" 3})
+    foo=> (json/encode-to-str {"a" 1 "b" 2 "c" 3})
     "{\"a\":1,\"b\":2,\"c\":3}"
+    foo=> (import '(java.io FileWriter))
+    nil
+    foo=> (. (json/encode-to-writer [1 2 3 4 5] (FileWriter. "/tmp/foo.json")) (close))
+    nil
 
 # Note #
 
