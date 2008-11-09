@@ -41,6 +41,15 @@
   [x]
   (instance? clojure.lang.IMapEntry x))
 
+(defn- next-indent
+  "Returns a string of size (+ (count current-indent) indent-size)
+   iff indent-size is not zero."
+  [#^String current-indent #^Integer indent-size]
+  (if (zero? indent-size)
+    ""
+    (str current-indent
+         (apply str (replicate indent-size " ")))))
+
 (defn- start-token
   [#^clojure.lang.IPersistentCollection coll]
   (if (map? coll)
@@ -57,45 +66,54 @@
   "Encodes a symbol into JSON.
    If that symbol happens to be separator-symbol, though,
    it will be encoded without surrounding quotation marks."
-  [#^clojure.lang.Symbol value #^Writer writer]
+  [#^clojure.lang.Symbol value #^Writer writer #^String pad]
   (if (= value separator-symbol)
-    (. writer (append (str separator-symbol)))
+    (. writer (append (str separator-symbol pad)))
     (. writer (append (str \" value \")))))
 
 (defn- encode-map-entry
-  [#^clojure.lang.MapEntry pair #^Writer writer
-   #^String pad #^String indent #^Integer indent-size]
-  (encode-helper (key pair) writer pad "" indent-size)
-  (. writer (append ":"))
-  (encode-helper (val pair) writer pad "" indent-size))
+  "Encodes a single key:value pair into JSON."
+  [#^clojure.lang.MapEntry pair #^Writer writer #^IPersistentMap opts]
+  (let [pad (get opts :pad "")
+        current-indent (get opts :current-indent "")
+        indent-size (get opts :indent-size 0)
+        next-indent (next-indent current-indent indent-size)]
+    (encode-helper (key pair) writer {:pad pad :current-indent current-indent :indent-size indent-size})
+    (. writer (append ":"))
+    (encode-helper (val pair) writer {:pad pad :current-indent "" :next-indent next-indent :indent-size indent-size})))
 
 (defn- encode-coll
   "Encodes a collection into JSON."
   [#^clojure.lang.IPersistentCollection coll #^Writer writer
-   #^String pad #^String indent #^Integer indent-size]
-  (. writer (append (str (start-token coll) pad)))
-  (let [ind (if (empty? indent) "" (str indent
-                                        (apply str (replicate indent-size " "))))]
+   #^IPersistentMap opts]
+  (let [pad (get opts :pad "")
+        current-indent (get opts :current-indent "")
+        indent-size (get opts :indent-size 0)
+        start-token-indent (get opts :start-token-indent "")
+        end-token-indent (apply str (drop indent-size current-indent))
+        next-indent (next-indent current-indent indent-size)]
+    (. writer (append (str start-token-indent (start-token coll) pad)))
     (dorun (map (fn [x]
-                  (. writer (append indent))
-                  (encode-helper x writer pad indent indent-size))
-                (interpose separator-symbol coll))))
-  (. writer (append (str pad (end-token coll)))))
+                  (encode-helper x writer {:pad pad :current-indent current-indent :indent-size indent-size}))
+                (interpose separator-symbol coll)))
+    (. writer (append (str pad end-token-indent (end-token coll))))))
 
 (defn- encode-helper
-  [value #^Writer writer
-   #^String pad #^String indent #^Integer indent-size]
-  (let [ind (str indent
-                 (apply str (replicate indent-size " ")))]
+  [value #^Writer writer #^IPersistentMap opts]
+  (let [current-indent (get opts :current-indent "")
+        indent-size (get opts :indent-size 0)
+        pad (get opts :pad "")
+        next-indent (get opts :next-indent
+                         (next-indent current-indent indent-size))]
     (cond
-     (= (class value) java.lang.Boolean) (. writer (append (str ind value)))
-     (nil? value) (. writer (append (str ind 'null)))
-     (string? value) (. writer (append (str ind \" value \")))
-     (number? value) (. writer (append (str ind value)))
-     (keyword? value) (. writer (append (str ind \" value \")))
-     (symbol? value) (encode-symbol value writer)
-     (map-entry? value) (encode-map-entry value writer pad ind indent-size)
-     (coll? value) (encode-coll value writer pad ind indent-size)
+     (= (class value) java.lang.Boolean) (. writer (append (str current-indent value)))
+     (nil? value) (. writer (append (str current-indent 'null)))
+     (string? value) (. writer (append (str current-indent \" value \")))
+     (number? value) (. writer (append (str current-indent value)))
+     (keyword? value) (. writer (append (str current-indent \" value \")))
+     (symbol? value) (encode-symbol value writer pad)
+     (map-entry? value) (encode-map-entry value writer {:pad pad :current-indent current-indent :indent-size indent-size})
+     (coll? value) (encode-coll value writer {:pad pad :current-indent next-indent :start-token-indent current-indent :indent-size indent-size})
      :else (throw (Exception. (str "Unknown Datastructure: " value))))))
 
 (defn encode-to-str
@@ -105,10 +123,10 @@
   [value & opts]
   (let [writer (StringWriter.)
         opts (apply hash-map opts)
-        pad (if (:pad opts) \newline "")
         indent-size (get opts :indent 0)
+        pad (if (> indent-size 0) \newline "")
         indent (apply str (replicate indent-size " "))]
-    (str (encode-helper value writer pad "" indent-size))))
+    (str (encode-helper value writer {:pad pad :indent "" :indent-size indent-size}))))
 
 (defn encode-to-writer
   "Takes an arbitrarily nested clojure datastructure
@@ -116,7 +134,7 @@
    string representation in the java.io.Writer."
   [value #^Writer writer & opts]
   (let [opts (apply hash-map opts)
-        pad (if (:pad opts) \newline "")
         indent-size (get opts :indent 0)
+        pad (if (> indent-size 0) \newline "")
         indent (apply str (replicate indent-size " "))]
-    (encode-helper value writer pad "" indent-size)))
+    (encode-helper value writer {:pad pad :indent "" :indent-size indent-size})))
