@@ -123,7 +123,7 @@
 
 (defn encode-to-writer
   "Takes an arbitrarily nested clojure datastructure
-   and a java.lang.Writer and returns a JSON-encoded
+   and a java.io.Writer and returns a JSON-encoded
    string representation in the java.io.Writer."
   [value #^Writer writer & opts]
   (let [opts (apply hash-map opts)
