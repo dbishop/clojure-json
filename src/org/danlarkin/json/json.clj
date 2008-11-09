@@ -26,50 +26,65 @@
 (ns org.danlarkin.json
   (:import (java.io Writer StringWriter)))
 
-(defn- encode-helper []) ;encode-helper is used before it's defined
-                         ;so we have to pre-define it
+(set! *warn-on-reflection* true)
 
-(defn- encode-map
-  "Encodes a hash-map into JSON.
-   Has a caveat that any strings that evaluate to the
-   (gensym 'comma__') will be encoded as commas."
-  [hmap #^Writer writer #^String pad #^String indent #^Integer indent-size]
-  (. writer (append (str \{ pad)))
-  (let [comma (gensym "comma__")
-        ind (if (empty? indent) "" (apply str (replicate indent-size " ")))]
-    (dorun (map (fn [x] (if (= x comma)
-                          (do
-                            (. writer (append ","))
-                            (. writer (append pad)))
-                          (do
-                            (encode-helper (first x) writer pad ind indent-size)
-                            (. writer (append ":"))
-                            (encode-helper (second x) writer pad "" 0))))
-                (interpose comma hmap))))
-  (. writer (append (str indent pad \}))))
+(def
+ #^{:private true}
+ separator-symbol         ;separator-symbol will be used for encoding
+ (symbol ","))            ;commas in arrays and objects: [a,b,c] and {a:b,c:d}
+
+(defn- encode-helper [])  ;encode-helper is used before it's defined
+                          ;so we have to pre-define it
+
+(defn- map-entry?
+  "Returns true if x is a MapEntry"
+  [x]
+  (instance? clojure.lang.IMapEntry x))
+
+(defn- start-token
+  [#^clojure.lang.IPersistentCollection coll]
+  (if (map? coll)
+    \{
+    \[))
+
+(defn- end-token
+  [#^clojure.lang.IPersistentCollection coll]
+  (if (map? coll)
+    \}
+    \]))
+
+(defn- encode-symbol
+  "Encodes a symbol into JSON.
+   If that symbol happens to be separator-symbol, though,
+   it will be encoded without surrounding quotation marks."
+  [#^clojure.lang.Symbol value #^Writer writer]
+  (if (= value separator-symbol)
+    (. writer (append (str separator-symbol)))
+    (. writer (append (str \" value \")))))
+
+(defn- encode-map-entry
+  [#^clojure.lang.MapEntry pair #^Writer writer
+   #^String pad #^String indent #^Integer indent-size]
+  (encode-helper (key pair) writer pad "" indent-size)
+  (. writer (append ":"))
+  (encode-helper (val pair) writer pad "" indent-size))
 
 (defn- encode-coll
-  "Encodes a collection into JSON.
-   Has a caveat that any strings that evaluate to the
-   (gensym 'comma__') will be encoded as commas."
-  [lst #^Writer writer #^String pad #^String indent #^Integer indent-size]
-  (. writer (append (str \[ pad)))
-  (let [comma (gensym "comma__")
-        ind (if (empty? indent) "" (str indent
+  "Encodes a collection into JSON."
+  [#^clojure.lang.IPersistentCollection coll #^Writer writer
+   #^String pad #^String indent #^Integer indent-size]
+  (. writer (append (str (start-token coll) pad)))
+  (let [ind (if (empty? indent) "" (str indent
                                         (apply str (replicate indent-size " "))))]
     (dorun (map (fn [x]
-                  (if (= x comma)
-                    (do
-                      (. writer (append ","))
-                      (. writer (append pad)))
-                    (do
-                      (. writer (append indent))
-                      (encode-helper x writer pad indent indent-size))))
-                (interpose comma lst))))
-  (. writer (append (str pad \]))))
+                  (. writer (append indent))
+                  (encode-helper x writer pad indent indent-size))
+                (interpose separator-symbol coll))))
+  (. writer (append (str pad (end-token coll)))))
 
 (defn- encode-helper
-  [value #^Writer writer #^String pad #^String indent #^Integer indent-size]
+  [value #^Writer writer
+   #^String pad #^String indent #^Integer indent-size]
   (let [ind (str indent
                  (apply str (replicate indent-size " ")))]
     (cond
@@ -77,9 +92,9 @@
      (nil? value) (. writer (append (str ind 'null)))
      (string? value) (. writer (append (str ind \" value \")))
      (number? value) (. writer (append (str ind value)))
-     (symbol? value) (. writer (append (str ind \" value \")))
      (keyword? value) (. writer (append (str ind \" value \")))
-     (map? value) (encode-map value writer pad ind indent-size)
+     (symbol? value) (encode-symbol value writer)
+     (map-entry? value) (encode-map-entry value writer pad ind indent-size)
      (coll? value) (encode-coll value writer pad ind indent-size)
      :else (throw (Exception. (str "Unknown Datastructure: " value))))))
 
