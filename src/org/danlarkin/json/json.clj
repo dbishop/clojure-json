@@ -73,38 +73,31 @@
 
 (defn- encode-map-entry
   "Encodes a single key:value pair into JSON."
-  [#^clojure.lang.MapEntry pair #^Writer writer #^IPersistentMap opts]
-  (let [pad (get opts :pad "")
-        current-indent (get opts :current-indent "")
-        indent-size (get opts :indent-size 0)
-        next-indent (next-indent current-indent indent-size)]
-    (encode-helper (key pair) writer {:pad pad :current-indent current-indent :indent-size indent-size})
+  [#^clojure.lang.MapEntry pair #^Writer writer
+   #^String pad #^String current-indent #^Integer indent-size]
+  (let [next-indent (next-indent current-indent indent-size)]
+    (encode-helper (key pair) writer pad current-indent indent-size)
     (. writer (append ":"))
-    (encode-helper (val pair) writer {:pad pad :current-indent "" :next-indent next-indent :indent-size indent-size})))
+    (encode-helper (val pair) writer pad "" indent-size next-indent)))
 
 (defn- encode-coll
   "Encodes a collection into JSON."
   [#^clojure.lang.IPersistentCollection coll #^Writer writer
-   #^IPersistentMap opts]
-  (let [pad (get opts :pad "")
-        current-indent (get opts :current-indent "")
-        indent-size (get opts :indent-size 0)
-        start-token-indent (get opts :start-token-indent "")
-        end-token-indent (apply str (drop indent-size current-indent))
+   #^String pad #^String current-indent #^String start-token-indent #^Integer indent-size]
+  (let [end-token-indent (apply str (drop indent-size current-indent))
         next-indent (next-indent current-indent indent-size)]
     (. writer (append (str start-token-indent (start-token coll) pad)))
     (dorun (map (fn [x]
-                  (encode-helper x writer {:pad pad :current-indent current-indent :indent-size indent-size}))
+                  (encode-helper x writer pad current-indent indent-size))
                 (interpose separator-symbol coll)))
     (. writer (append (str pad end-token-indent (end-token coll))))))
 
 (defn- encode-helper
-  [value #^Writer writer #^IPersistentMap opts]
-  (let [current-indent (get opts :current-indent "")
-        indent-size (get opts :indent-size 0)
-        pad (get opts :pad "")
-        next-indent (get opts :next-indent
-                         (next-indent current-indent indent-size))]
+  [value #^Writer writer #^IPersistentMap
+   #^String pad #^String current-indent #^Integer indent-size & opts]
+  (let [next-indent (if-let x (first opts)
+                      x
+                      (next-indent current-indent indent-size))]
     (cond
      (= (class value) java.lang.Boolean) (. writer (append (str current-indent value)))
      (nil? value) (. writer (append (str current-indent 'null)))
@@ -112,8 +105,8 @@
      (number? value) (. writer (append (str current-indent value)))
      (keyword? value) (. writer (append (str current-indent \" value \")))
      (symbol? value) (encode-symbol value writer pad)
-     (map-entry? value) (encode-map-entry value writer {:pad pad :current-indent current-indent :indent-size indent-size})
-     (coll? value) (encode-coll value writer {:pad pad :current-indent next-indent :start-token-indent current-indent :indent-size indent-size})
+     (map-entry? value) (encode-map-entry value writer pad current-indent indent-size)
+     (coll? value) (encode-coll value writer pad next-indent current-indent indent-size)
      :else (throw (Exception. (str "Unknown Datastructure: " value))))))
 
 (defn encode-to-str
@@ -126,7 +119,7 @@
         indent-size (get opts :indent 0)
         pad (if (> indent-size 0) \newline "")
         indent (apply str (replicate indent-size " "))]
-    (str (encode-helper value writer {:pad pad :indent "" :indent-size indent-size}))))
+    (str (encode-helper value writer pad "" indent-size))))
 
 (defn encode-to-writer
   "Takes an arbitrarily nested clojure datastructure
@@ -137,4 +130,4 @@
         indent-size (get opts :indent 0)
         pad (if (> indent-size 0) \newline "")
         indent (apply str (replicate indent-size " "))]
-    (encode-helper value writer {:pad pad :indent "" :indent-size indent-size})))
+    (encode-helper value writer pad "" indent-size)))
