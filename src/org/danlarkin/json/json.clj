@@ -26,7 +26,7 @@
 (ns org.danlarkin.json
   (:import (java.io Writer StringWriter)))
 
-(set! *warn-on-reflection* true)
+;(set! *warn-on-reflection* true)
 
 (def
  #^{:private true}
