@@ -103,7 +103,7 @@
      (nil? value) (. writer (append (str current-indent 'null)))
      (string? value) (. writer (append (str current-indent \" value \")))
      (number? value) (. writer (append (str current-indent value)))
-     (keyword? value) (. writer (append (str current-indent \" value \")))
+     (keyword? value) (. writer (append (str current-indent \" (name value) \")))
      (symbol? value) (encode-symbol value writer pad)
      (map-entry? value) (encode-map-entry value writer pad current-indent indent-size)
      (coll? value) (encode-coll value writer pad next-indent current-indent indent-size)
