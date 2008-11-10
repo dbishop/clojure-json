@@ -41,7 +41,7 @@
   [x]
   (instance? clojure.lang.IMapEntry x))
 
-(defn- next-indent
+(defn- get-next-indent
   "Returns a string of size (+ (count current-indent) indent-size)
    iff indent-size is not zero."
   [#^String current-indent #^Integer indent-size]
@@ -75,7 +75,7 @@
   "Encodes a single key:value pair into JSON."
   [#^clojure.lang.MapEntry pair #^Writer writer
    #^String pad #^String current-indent #^Integer indent-size]
-  (let [next-indent (next-indent current-indent indent-size)]
+  (let [next-indent (get-next-indent current-indent indent-size)]
     (encode-helper (key pair) writer pad current-indent indent-size)
     (. writer (append ":"))
     (encode-helper (val pair) writer pad "" indent-size next-indent)))
@@ -85,7 +85,7 @@
   [#^clojure.lang.IPersistentCollection coll #^Writer writer
    #^String pad #^String current-indent #^String start-token-indent #^Integer indent-size]
   (let [end-token-indent (apply str (drop indent-size current-indent))
-        next-indent (next-indent current-indent indent-size)]
+        next-indent (get-next-indent current-indent indent-size)]
     (. writer (append (str start-token-indent (start-token coll) pad)))
     (dorun (map (fn [x]
                   (encode-helper x writer pad current-indent indent-size))
@@ -97,7 +97,7 @@
    #^String pad #^String current-indent #^Integer indent-size & opts]
   (let [next-indent (if-let x (first opts)
                       x
-                      (next-indent current-indent indent-size))]
+                      (get-next-indent current-indent indent-size))]
     (cond
      (= (class value) java.lang.Boolean) (. writer (append (str current-indent value)))
      (nil? value) (. writer (append (str current-indent 'null)))
