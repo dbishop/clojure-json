@@ -92,7 +92,19 @@
                 (interpose separator-symbol coll)))
     (. writer (append (str pad end-token-indent (end-token coll))))))
 
-(defn- encode-helper
+
+(defmulti encode-custom
+  ;Multimethod for encoding classes of objects that
+  ;aren't handled by the default encode-helper.
+  (fn [value & _] (class value)))
+
+(defmethod
+  #^{:private true}
+  encode-custom :default
+  [value & _]
+  (throw (Exception. (str "Unknown Datastructure: " value))))
+
+(defn encode-helper
   [value #^Writer writer #^IPersistentMap
    #^String pad #^String current-indent #^Integer indent-size & opts]
   (let [next-indent (if-let [x (first opts)]
@@ -107,7 +119,7 @@
      (symbol? value) (encode-symbol value writer pad)
      (map-entry? value) (encode-map-entry value writer pad current-indent indent-size)
      (coll? value) (encode-coll value writer pad next-indent current-indent indent-size)
-     :else (throw (Exception. (str "Unknown Datastructure: " value))))))
+     :else (encode-custom value writer pad next-indent current-indent indent-size))))
 
 (defn encode-to-str
   "Takes an arbitrarily nested clojure datastructure
