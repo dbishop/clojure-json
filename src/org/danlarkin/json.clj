@@ -36,8 +36,12 @@
    For example:
 
    (add-encoder java.util.Date
-             (fn [date writer pad current-indent start-token-indent indent-size]
+             (fn [#^java.util.Date date #^Writer writer
+                  #^String pad #^String current-indent #^String start-token-indent #^Integer indent-size]
                (.append writer (str start-token-indent \" date \"))))
+
+   The type hinting of parameters isn't required but it does seem to speed up performance a lot
+   so I recommend using them.
 
    "
   [type f]
