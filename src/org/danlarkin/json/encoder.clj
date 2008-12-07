@@ -66,8 +66,8 @@
    it will be encoded without surrounding quotation marks."
   [#^clojure.lang.Symbol value #^Writer writer #^String pad]
   (if (= value separator-symbol)
-    (. writer (append (str separator-symbol pad)))
-    (. writer (append (str \" value \")))))
+    (.append writer (str separator-symbol pad))
+    (.append writer (str \" value \"))))
 
 (defn- encode-map-entry
   "Encodes a single key:value pair into JSON."
@@ -75,7 +75,7 @@
    #^String pad #^String current-indent #^Integer indent-size]
   (let [next-indent (get-next-indent current-indent indent-size)]
     (encode-helper (key pair) writer pad current-indent indent-size)
-    (. writer (append ":"))
+    (.append writer ":")
     (encode-helper (val pair) writer pad "" indent-size next-indent)))
 
 (defn- encode-coll
@@ -84,11 +84,11 @@
    #^String pad #^String current-indent #^String start-token-indent #^Integer indent-size]
   (let [end-token-indent (apply str (drop indent-size current-indent))
         next-indent (get-next-indent current-indent indent-size)]
-    (. writer (append (str start-token-indent (start-token coll) pad)))
+    (.append writer (str start-token-indent (start-token coll) pad))
     (dorun (map (fn [x]
                   (encode-helper x writer pad current-indent indent-size))
                 (interpose separator-symbol coll)))
-    (. writer (append (str pad end-token-indent (end-token coll))))))
+    (.append writer (str pad end-token-indent (end-token coll)))))
 
 
 (defmulti encode-custom
@@ -109,11 +109,11 @@
                       x
                       (get-next-indent current-indent indent-size))]
     (cond
-     (= (class value) java.lang.Boolean) (. writer (append (str current-indent value)))
-     (nil? value) (. writer (append (str current-indent 'null)))
-     (string? value) (. writer (append (str current-indent \" value \")))
-     (number? value) (. writer (append (str current-indent value)))
-     (keyword? value) (. writer (append (str current-indent \" (name value) \")))
+     (= (class value) java.lang.Boolean) (.append writer (str current-indent value))
+     (nil? value) (.append writer (str current-indent 'null))
+     (string? value) (.append writer (str current-indent \" value \"))
+     (number? value) (.append writer (str current-indent value))
+     (keyword? value) (.append writer (str current-indent \" (name value) \"))
      (symbol? value) (encode-symbol value writer pad)
      (map-entry? value) (encode-map-entry value writer pad current-indent indent-size)
      (coll? value) (encode-coll value writer pad next-indent current-indent indent-size)
