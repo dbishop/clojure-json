@@ -54,7 +54,7 @@
 (defn- decode-array
   "Given a token-seq, return a vector and the new 'head' of the token-seq"
   [token-seq]
-  (loop [array (vector)
+  (loop [array []
 	 next-token (first token-seq)
 	 value token-seq]
     (if (= next-token \]) [array (rest value)]
