@@ -59,7 +59,9 @@
 	 value token-seq]
     (if (= next-token \]) [array (rest value)]
 	(let [[decoded-value post-value-seq] (decode-value value)]
-	  (recur (conj array decoded-value)
+	  (recur (if (= \, decoded-value)
+                   array
+                   (conj array decoded-value))
 		 (first post-value-seq)
 		 post-value-seq)))))
 
@@ -71,9 +73,13 @@
          value (rest token-seq)]
     (if (= key \}) [object value]
 	(let [[decoded-value post-value-seq] (decode-value value)]
-	  (recur (assoc object (keyword key) decoded-value)
-		 (first post-value-seq)
-		 (rest post-value-seq))))))
+          (if (= \, key)
+            (recur object
+                   (first value)
+                   (rest value))
+            (recur (assoc object (keyword (str key)) decoded-value)
+                   (first post-value-seq)
+                   (rest post-value-seq)))))))
 
 (defn- decode-value
   "Given a token-seq, return a value (string, number, object, array, true, false, nil)"
@@ -115,7 +121,7 @@
 		    (.slashStarComments false)
 		    (.slashSlashComments false)
 		    (.whitespaceChars 0 33) ; (up to and including !)
-		    (.whitespaceChars 35 44) ; #$%&'()*+,
+		    (.whitespaceChars 35 43) ; #$%&'()*+
 		    (.whitespaceChars 47 47) ; /
 		    (.whitespaceChars 58 64) ; :;<=>?@
 		    (.whitespaceChars 92 92) ; \
@@ -126,6 +132,7 @@
 		    (.ordinaryChar 125) ; }
 		    (.ordinaryChar 91) ; [
 		    (.ordinaryChar 93) ; ]
+                    (.ordinaryChar 44) ; ,
 		    (.quoteChar 34) ; "
 		    (.parseNumbers))
 	token-seq (token-seq-builder tokenizer)]
