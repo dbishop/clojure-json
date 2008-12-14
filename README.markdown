@@ -1,12 +1,12 @@
 # Installing #
 
-There are two ways to install `clojure-json`:
+There are two ways to install clojure-json:
 
 * Use `ant` to compile to a JAR:
   * To package .class files and .clj sources use: `ant -Dclojure.jar=/path/to/clojure.jar`
   * To package only .clj sources use: `ant`
-  * Add /path/to/clojure-json.car to your classpath
-* Just add the src directory to your classpath
+  * Add `clojure-json.jar` to your classpath
+* Just add the `src` directory to your classpath
 
 # Using The Encoder #
 
