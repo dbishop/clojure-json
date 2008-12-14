@@ -1,0 +1,39 @@
+<?xml version="1.0"?>
+<project name="clojure-json" default="jar">
+
+  <description>
+    Compile clojure-json into a Java JAR.
+  </description>
+
+  <property name="src" location="src" />
+  <property name="build" location="build/classes" />
+  <property name="jarfile" location="clojure-json.jar" />
+  <available property="hasclojure" file="${clojure.jar}" />
+
+  <target name="init">
+    <mkdir dir="build/classes" />
+  </target>
+
+  <target name="compile" depends="init" if="hasclojure">
+    <java classname="clojure.lang.Compile"
+          classpath="${src}:${build}:${clojure.jar}">
+      <sysproperty key="clojure.compile.path" value="${build}" />
+      <arg value="org.danlarkin.json.encoder" />
+      <arg value="org.danlarkin.json.decoder" />
+      <arg value="org.danlarkin.json" />
+    </java>
+  </target>
+
+  <target name="jar" depends="compile">
+    <jar jarfile="${jarfile}" basedir="${build}">
+      <path location="LICENSE" />
+      <fileset dir="${src}" includes="**/*.clj" />
+      <fileset dir="${build}" includes="**/*.class" />
+    </jar>
+  </target>
+  
+  <target name="clean">
+    <delete dir="build" />
+  </target>
+  
+</project>
