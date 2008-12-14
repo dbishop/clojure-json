@@ -11,6 +11,7 @@ There are two ways to install clojure-json:
 # Using The Encoder #
 
     user=> (require '(org.danlarkin [json :as json]))
+    nil
     user=> (print (json/encode-to-str [1 2 3 4 5]))
     [1,2,3,4,5]nil
     user=> (print (json/encode-to-str {:a 1 :b 2 :c 3}))
@@ -61,6 +62,8 @@ does seem to speed up execution time a good bit so I suggest using them where sp
 
 # Using The Parser #
 
+    user=> (require '(org.danlarkin [json :as json]))
+    nil
     user=> (json/decode-from-str "[1, 2, 3, 4, 5]")
     [1 2 3 4 5]
     user=> (json/decode-from-str "{\"foo\":1, \"bar\":2, \"baz\":3}")
