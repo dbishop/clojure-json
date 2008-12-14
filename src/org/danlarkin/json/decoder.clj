@@ -24,7 +24,7 @@
 ;; THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 (ns org.danlarkin.json.decoder
-  (:import (java.io StringReader StreamTokenizer)))
+  (:import (java.io PushbackReader StringReader StreamTokenizer)))
 
 (declare decode-value)   ;decode-value is used before it's defined
                          ;so we have to pre-define it
@@ -81,6 +81,11 @@
                    (first post-value-seq)
                    (rest post-value-seq)))))))
 
+(defn- handle-exponent
+  "Use the clojure reader to parse a number."
+  [num exp]
+  (read (PushbackReader. (StringReader. (str (re-find #"-?[0-9.]+" (str num)) exp)))))
+
 (defn- decode-value
   "Given a token-seq, return a value (string, number, object, array, true, false, nil)"
   [token-seq]
@@ -95,9 +100,9 @@
      (= next-token "null") [nil new-seq]
      ;tokenizer screws up exponentiated numbers, so fix them here
      (= (check-parsing-accuracy next-token peek-ahead) :parsed-ok)
-       [(Double. (str next-token peek-ahead)) (rest new-seq)]
+       [(handle-exponent next-token peek-ahead) (rest new-seq)]
      (= (check-parsing-accuracy next-token peek-ahead) :parsed-bad)
-       [(Double. (str next-token peek-ahead (frest new-seq))) (rrest new-seq)]
+       [(handle-exponent next-token (str peek-ahead (frest new-seq))) (rrest new-seq)]
      :else [next-token new-seq])))
 
 (defn- token-seq-builder
