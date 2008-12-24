@@ -24,7 +24,7 @@
 ;; THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 (ns org.danlarkin.json.decoder
-  (:import (java.io PushbackReader StringReader StreamTokenizer)))
+  (:import (java.io BufferedReader)))
 
 (declare decode-value)   ;decode-value is used before it's defined
                          ;so we have to pre-define it
@@ -37,111 +37,163 @@
       ix
       x)))
 
-(defn- check-parsing-accuracy
-  "A bug (or what I assume must be a bug) in Java's StreamTokenizer
-   prevents it from correctly handling numbers in the exponential
-   form.  So if the parser is passed a number and the next token
-   starts with ^[eE]-? then we know to pull from the future and
-   get the exponent."
-  [this next]
-  (and
-   (number? this)
-   (and (string? next) (re-find #"^[eE]-?" next);got an exponent
-        (if (re-find #"[0-9]$" next);exponent ends with a number
-          :parsed-ok
-          :parsed-bad))))
+(defn- json-ws?
+  "Returns true if the Unicode codepoint is an 'insignificant whitespace' per the JSON
+   standard, false otherwise.  Cf. RFC 4627, sec. 2)"
+  [#^Integer codepoint]
+  (cond
+   (= codepoint 0x20) true ; Space
+   (= codepoint 0x09) true ; Horizontal tab
+   (= codepoint 0x0A) true ; Line feed or New line
+   (= codepoint 0x0D) true ; Carriage return
+   :else false))
 
-(defn- decode-array
-  "Given a token-seq, return a vector and the new 'head' of the token-seq"
-  [token-seq]
-  (loop [array []
-	 next-token (first token-seq)
-	 value token-seq]
-    (if (= next-token \]) [array (rest value)]
-	(let [[decoded-value post-value-seq] (decode-value value)]
-	  (recur (if (= \, decoded-value)
-                   array
-                   (conj array decoded-value))
-		 (first post-value-seq)
-		 post-value-seq)))))
+(defn- number-char?
+  "Returns true if the Unicode codepoint is allowed in a number.  Cf. RFC 4627, sec. 2.4)"
+  [#^Integer codepoint]
+  (cond
+   (and (>= codepoint 0x30) (<= codepoint 0x39)) true ; 0-9
+   (= codepoint 0x2e) true ; .
+   (or (= codepoint 0x65) (= codepoint 0x45)) true ; e E
+   (= codepoint 0x2d) true ; -
+   (= codepoint 0x2b) true ; +
+   :else false))
+
+(defn- read-matching
+  "Reads and returns a string containing 0 or more characters matching match-fn from
+   a BufferedReader."
+  [#^BufferedReader b-reader match-fn]
+  (loop [s ""]
+    (let [_ (.mark b-reader 1)
+	  codepoint (.read b-reader)]
+      (cond
+       (= codepoint -1) s
+       (match-fn codepoint) (recur (str s (char codepoint)))
+       :else (let [_ (.reset b-reader)] s)))))
+
+(defn- eat-whitespace
+  "Reads 0 or more whitespace characters from a BufferedReader.
+   Returns the whitespace eaten, not that anyone cares."
+  [#^BufferedReader b-reader]
+  (read-matching b-reader json-ws?))
 
 (defn- decode-object
-  "Given a token-seq, return a hash-map and the new 'head' of the token-seq"
-  [token-seq]
-  (loop [object {}
-         key (first token-seq)
-         value (rest token-seq)]
-    (if (= key \}) [object value]
-	(let [[decoded-value post-value-seq] (decode-value value)]
-          (if (= \, key)
-            (recur object
-                   (first value)
-                   (rest value))
-            (recur (assoc object (keyword (str key)) decoded-value)
-                   (first post-value-seq)
-                   (rest post-value-seq)))))))
+  "Decodes a JSON object and returns a hash-map."
+  [#^BufferedReader b-reader]
+  (loop [object {}]
+    (let [_ (.mark b-reader 1)
+	  codepoint (.read b-reader)]
+      (cond
+       (= codepoint 0x7D) object ; }
+       (= codepoint 0x2C) (recur object)
+       (json-ws? codepoint) (let [_ (eat-whitespace b-reader)] (recur object))
+       :else (let [_ (.reset b-reader)
+		   _ (eat-whitespace b-reader)
+		   key (decode-value b-reader)
+		   _ (eat-whitespace b-reader)
+		   name-sep (.read b-reader) ; should be : (0x3A)
+		   _ (eat-whitespace b-reader)
+		   value (decode-value b-reader)
+		   _ (eat-whitespace b-reader)]
+	       (when-not (= name-sep 0x3A)
+		 (throw (Exception. "Error parsing object: colon not where expected.")))
+	       (recur (assoc object (keyword key) value)))))))
 
-(defn- handle-exponent
-  "Use the clojure reader to parse a number."
-  [num exp]
-  (read (PushbackReader. (StringReader. (str (re-find #"-?[0-9.]+" (str num)) exp)))))
+(defn- decode-array
+  "Decodes a JSON array and returns a vector."
+  [#^BufferedReader b-reader]
+  (loop [array []]
+    (let [_ (.mark b-reader 1)
+	  codepoint (.read b-reader)]
+      (cond
+       (= codepoint 0x5D) array
+       (= codepoint 0x2C) (recur array)
+       ; next case handles empty array with whitespace between [ and ]
+       (json-ws? codepoint) (let [_ (eat-whitespace b-reader)] (recur array))
+       :else (let [_ (.reset b-reader)
+		   _ (eat-whitespace b-reader)
+		   value (decode-value b-reader)
+		   _ (eat-whitespace b-reader)]
+	       (recur (conj array value)))))))
+
+(def unescape-map
+     {0x22 \"
+      0x5C \\
+      0x2F \/
+      0x62 \u0008
+      0x66 \u000C
+      0x6E \newline
+      0x72 \u000D
+      0x74 \u0009})
+		 
+(defn- unescape
+  "We've read a backslash, now figure out what character it was escaping and return
+   it."
+  [#^BufferedReader b-reader]
+  (let [codepoint (.read b-reader)
+	map-value (unescape-map codepoint)]
+    (cond
+     map-value map-value
+     (= codepoint 0x75)
+       (read-string (str
+		     "\\u"
+		     (apply str (take 4 (map
+					 #(char (.read #^BufferedReader %))
+					 (repeat b-reader)))))))))
+
+(defn- decode-string
+  "Decodes a JSON string and returns it.  NOTE: strings are terminated by a double-quote
+   so we won't have to worry about back-tracking."
+  [#^BufferedReader b-reader]
+  (loop [s ""]
+    (let [codepoint (.read b-reader)]
+      (cond
+       (= codepoint -1) (throw (Exception. "Hit end of input inside a string!"))
+       (= codepoint 0x22) s ; done (and we ate the close double-quote already)
+       (= codepoint 0x5C) (recur (str s (unescape b-reader))) ; backslash escape sequence
+       :else (recur (str s (char codepoint)))))))
+
+(defn- decode-const
+  "Decodes an expected constant, throwing an exception if the buffer contents don't
+   match the expectation.  Otherwise, the supplied constant value is returned."
+  [#^BufferedReader b-reader #^String expected value]
+  (let [exp-len (count expected)
+	got (loop [s "" br b-reader len exp-len]
+	      (if (> len 0)
+		(recur (str s (char (.read br))) br (dec len))
+		s))]
+    (if (= got expected)
+      value
+      (throw (Exception. (str
+			  "Unexpected constant remainder: " got
+			  " expected: " expected))))))
+
+(defn- decode-number
+  "Decodes a number and returns it.  NOTE: first character of the number has already
+   read so the first thing we need to do is reset the BufferedReader."
+  [#^BufferedReader b-reader]
+  (let [_ (.reset b-reader)
+	number-str (read-matching b-reader number-char?)]
+    (convert-number (read-string number-str))))
 
 (defn- decode-value
-  "Given a token-seq, return a value (string, number, object, array, true, false, nil)"
-  [token-seq]
-  (let [next-token (first token-seq)
-	new-seq (rest token-seq)
-	peek-ahead (first new-seq)]
+  "Decodes and returns a value (string, number, boolean, null, object, or array).
+   NOTE: decode-value is not responsible for eating whitespace after the value."
+  [#^BufferedReader b-reader]
+  (let [_ (.mark b-reader 1)
+	char (char (.read b-reader))]
     (cond
-     (= next-token \{) (decode-object new-seq)
-     (= next-token \[) (decode-array new-seq)
-     (= next-token "true") [true new-seq]
-     (= next-token "false") [false new-seq]
-     (= next-token "null") [nil new-seq]
-     ;tokenizer screws up exponentiated numbers, so fix them here
-     (= (check-parsing-accuracy next-token peek-ahead) :parsed-ok)
-       [(handle-exponent next-token peek-ahead) (rest new-seq)]
-     (= (check-parsing-accuracy next-token peek-ahead) :parsed-bad)
-       [(handle-exponent next-token (str peek-ahead (frest new-seq))) (rrest new-seq)]
-     :else [next-token new-seq])))
+     (= char \{) (decode-object b-reader)
+     (= char \[) (decode-array b-reader)
+     (= char \") (decode-string b-reader)
+     (= char \f) (decode-const b-reader "alse" false)
+     (= char \t) (decode-const b-reader "rue" true)
+     (= char \n) (decode-const b-reader "ull" nil)
+     :else (decode-number b-reader))))
 
-(defn- token-seq-builder
-  "Returns a seq of tokens as vectors like [<nextToken_return> <value>]"
-  [tokenizer]
-  (fnseq (let [_ (.nextToken tokenizer)
-	       ttype (.ttype tokenizer)]
-	   (cond (= ttype StreamTokenizer/TT_EOF) "TT_EOF"
-		 (= ttype StreamTokenizer/TT_EOL) "TT_EOL"
-		 (= ttype StreamTokenizer/TT_NUMBER) (convert-number (.nval tokenizer))
-		 (= ttype StreamTokenizer/TT_WORD) (.sval tokenizer)
-		 (= ttype 34) (.sval tokenizer)
-		 :else (char ttype)))
-         #(token-seq-builder tokenizer)))
-
-(defn decode-helper
+(defn decode-from-buffered-reader
   [reader]
-  (let [tokenizer (doto (StreamTokenizer. reader)
-		    (.eolIsSignificant false)
-		    (.lowerCaseMode false)
-		    (.slashStarComments false)
-		    (.slashSlashComments false)
-		    (.whitespaceChars 0 33) ; (up to and including !)
-		    (.whitespaceChars 35 43) ; #$%&'()*+
-		    (.whitespaceChars 47 47) ; /
-		    (.whitespaceChars 58 64) ; :;<=>?@
-		    (.whitespaceChars 92 92) ; \
-		    (.whitespaceChars 94 96) ; ^_`
-		    (.whitespaceChars 124 124) ; |
-		    (.whitespaceChars 126 254) ; ~ del etc...
-		    (.ordinaryChar 123) ; {
-		    (.ordinaryChar 125) ; }
-		    (.ordinaryChar 91) ; [
-		    (.ordinaryChar 93) ; ]
-                    (.ordinaryChar 44) ; ,
-		    (.quoteChar 34) ; "
-		    (.parseNumbers))
-	token-seq (token-seq-builder tokenizer)]
-    (cond
-     (= (first token-seq) \{) (first (decode-object (rest token-seq)))
-     (= (first token-seq) \[) (first (decode-array (rest token-seq)))
-     :else (first (decode-value token-seq)))))
+  (let [b-reader (BufferedReader. reader)]
+    ; eat leading whitespace; next char should be start of a value (what we'll return)
+    (eat-whitespace b-reader)
+    (decode-value b-reader)))

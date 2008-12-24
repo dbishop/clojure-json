@@ -24,7 +24,7 @@
 ;; THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 (ns org.danlarkin.json
-  (:import (java.io StringWriter StringReader))
+  (:import (java.io StringWriter StringReader BufferedReader))
   (:use (org.danlarkin.json [encoder :as encoder]
                             [decoder :as decoder])))
 
@@ -74,14 +74,18 @@
         indent (apply str (replicate indent-size " "))]
     (encoder/encode-helper value writer pad "" indent-size)))
 
-(defn decode-from-str
-  "Takes a JSON-encoded string and returns a clojure datastructure."
-  [value]
-  (let [reader (StringReader. value)]
-    (decoder/decode-helper reader)))
-
 (defn decode-from-reader
   "Takes a java.io.Reader pointing to JSON-encoded data and
    returns a clojure datastructure."
   [reader]
-  (decoder/decode-helper reader))
+  ; Unless we're already dealing with a BufferedReader, wrap the supplied reader in one
+  ; (this ensures we have a consistent interface supporting mark/reset regardless which
+  ; subclass of Reader we were passed).  For now, we'll use the default buffer length.
+  (if (isa? reader BufferedReader)
+    (decoder/decode-from-buffered-reader reader)
+    (decoder/decode-from-buffered-reader (BufferedReader. reader))))
+
+(defn decode-from-str
+  "Takes a JSON-encoded string and returns a clojure datastructure."
+  [value]
+  (decode-from-reader (StringReader. value)))

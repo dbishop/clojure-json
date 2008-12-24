@@ -90,6 +90,36 @@
                 (interpose separator-symbol coll)))
     (.append writer (str pad end-token-indent (end-token coll)))))
 
+(def escape-map
+     {
+      \u0008 "\\b"
+      \u0009 "\\t"
+      \u000A "\\n"
+      \u000C "\\f"
+      \u000D "\\r"
+      \u0022 "\\\""
+      \u005C "\\\\"      
+      })
+
+(defn- escaped-char
+  "Given a char, return either the char or an escaped representation.  If a character
+   must be escaped and there is a shortened 'backslash' escape sequence available, it
+   is used.  Otherwise the character is escaped as backslash-u-4-hex-digits.  The /
+   (solidus) character can be escaped with a backslash but that is not required and
+   this code does not."
+  [#^Character c]
+  (let [quick-escape (escape-map c)]
+    (cond
+     quick-escape quick-escape
+     (or (= c (char 0x20)) (= c (char 0x21))) c
+     (and (>= (.compareTo c (char 0x23)) 0) (<= (.compareTo c (char 0x5B)) 0)) c
+     (>= (.compareTo c (char 0x5D)) 0) c
+     :else (format "\\u%04X" (int c)))))
+
+(defn- escaped-str
+  "Returns an escaped (per RFC4627, section 2.5) version of the input string"
+  [#^String string]
+  (apply str (map escaped-char string)))
 
 (defmulti encode-custom
   ;Multimethod for encoding classes of objects that
@@ -111,9 +141,10 @@
     (cond
      (= (class value) java.lang.Boolean) (.append writer (str current-indent value))
      (nil? value) (.append writer (str current-indent 'null))
-     (string? value) (.append writer (str current-indent \" value \"))
+     (string? value) (.append writer (str current-indent \" (escaped-str value) \"))
      (number? value) (.append writer (str current-indent value))
-     (keyword? value) (.append writer (str current-indent \" (name value) \"))
+     (keyword? value) (.append writer
+			       (str current-indent \" (escaped-str (name value)) \"))
      (symbol? value) (encode-symbol value writer pad)
      (map-entry? value) (encode-map-entry value writer pad current-indent indent-size)
      (coll? value) (encode-coll value writer pad next-indent current-indent indent-size)
